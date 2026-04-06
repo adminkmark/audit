@@ -1,0 +1,9 @@
+.git
+.gitignore
+.streamlit
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+KURSOVA_Metod_materialy_Marketing_2023_ (2).pdf
