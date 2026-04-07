@@ -155,6 +155,60 @@ def format_horizontal_shift(delta_x, base_size):
     return direction, chars
 
 
+def get_text_blocks_above_table(blocks, table_top):
+    texts = []
+    for block in blocks:
+        if "lines" not in block or block["bbox"][3] > table_top + 10:
+            continue
+        text = "".join(span["text"] for line in block["lines"] for span in line["spans"]).strip()
+        if text:
+            texts.append(text)
+    return texts
+
+
+def table_looks_real(table, page_rect):
+    x0, y0, x1, y1 = table.bbox
+    width = x1 - x0
+    height = y1 - y0
+    row_count = getattr(table, "row_count", 0)
+    col_count = getattr(table, "col_count", 0)
+    if width < page_rect.width * 0.28 or height < 45:
+        return False
+    if row_count and col_count and (row_count < 2 or col_count < 2):
+        return False
+    return True
+
+
+def page_has_previous_table_tail(doc, page_num):
+    if page_num <= 0:
+        return False
+    prev_page = doc[page_num - 1]
+    if not hasattr(prev_page, "find_tables"):
+        return False
+    prev_tables = prev_page.find_tables()
+    for prev_table in prev_tables.tables:
+        if not table_looks_real(prev_table, prev_page.rect):
+            continue
+        if prev_table.bbox[3] > prev_page.rect.height * 0.72:
+            return True
+    return False
+
+
+def flush_bibliography_entry(report, page_number, entry_parts):
+    if not entry_parts:
+        return
+    entry_text = normalize_text(" ".join(entry_parts))
+    has_year = bool(re.search(r"(19|20)\d{2}", entry_text) or re.search(r"(19|20)\d{2}\s*[–-]\s*(19|20)\d{2}", entry_text))
+    has_url = "URL" in entry_text.upper() or "HTTP" in entry_text.upper()
+    if not has_year and not has_url:
+        add_page_error(
+            report,
+            "Список використаних джерел (ДСТУ 8302:2015)",
+            page_number,
+            f"Можлива помилка ДСТУ (не знайдено року видання): <i>'{entry_text[:90]}...'</i>",
+        )
+
+
 def validate_line(lines, rule_errors, page_number, spec):
     line = find_best_line(
         lines,
@@ -363,6 +417,8 @@ def validate_contents_page(page, report, work_type):
 def analyze_body_pages(doc, report, start_page=2):
     expected_size = 14.0
     in_bibliography = False
+    bibliography_entry_parts = []
+    bibliography_entry_page = None
 
     for page_num in range(start_page, len(doc)):
         page = doc[page_num]
@@ -502,17 +558,28 @@ def analyze_body_pages(doc, report, start_page=2):
                     add_page_error(report, "Оформлення формул (Номер праворуч у дужках)", page_num + 1, f"Номер формули не притиснуто до правого краю: <i>'{full_text_strip[-15:]}'</i>")
 
             if full_text_strip == "СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ":
+                flush_bibliography_entry(report, bibliography_entry_page or (page_num + 1), bibliography_entry_parts)
+                bibliography_entry_parts = []
+                bibliography_entry_page = None
                 in_bibliography = True
             elif full_text_strip == "ДОДАТКИ":
+                flush_bibliography_entry(report, bibliography_entry_page or (page_num + 1), bibliography_entry_parts)
+                bibliography_entry_parts = []
+                bibliography_entry_page = None
                 in_bibliography = False
-            elif in_bibliography and re.match(r"^\d+\.", full_text_strip):
-                has_year = re.search(r"20\d\d", full_text_strip) or re.search(r"19\d\d", full_text_strip)
-                if not has_year and "URL" not in full_text_strip and "http" not in full_text_strip:
-                    add_page_error(report, "Список використаних джерел (ДСТУ 8302:2015)", page_num + 1, f"Можлива помилка ДСТУ (не знайдено року видання): <i>'{full_text_strip[:50]}...'</i>")
+            elif in_bibliography:
+                if re.match(r"^\d+\.", full_text_strip):
+                    flush_bibliography_entry(report, bibliography_entry_page or (page_num + 1), bibliography_entry_parts)
+                    bibliography_entry_parts = [full_text_strip]
+                    bibliography_entry_page = page_num + 1
+                elif bibliography_entry_parts:
+                    bibliography_entry_parts.append(full_text_strip)
 
         if hasattr(page, "find_tables"):
             tables = page.find_tables()
             for table in tables.tables:
+                if not table_looks_real(table, rect):
+                    continue
                 t_bbox = table.bbox
                 expected_left = 2.5 / PT_TO_CM
                 expected_right = 1.0 / PT_TO_CM
@@ -521,16 +588,13 @@ def analyze_body_pages(doc, report, start_page=2):
                 if t_bbox[2] > rect.width - expected_right + 5:
                     add_page_error(report, "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')", page_num + 1, "Правий край таблиці виходить за межі правого поля 1.0 см")
 
-                has_header = False
-                for block in blocks:
-                    if "lines" not in block or block["bbox"][3] > t_bbox[1] + 10:
-                        continue
-                    text = "".join(span["text"] for line in block["lines"] for span in line["spans"]).strip()
-                    if "Таблиця" in text or "Продовження" in text or "Кінець" in text:
-                        has_header = True
-                        break
+                header_texts = get_text_blocks_above_table(blocks, t_bbox[1])
+                has_table_label = any("Таблиця" in text for text in header_texts)
+                has_continuation_label = any("Продовження" in text or "Кінець" in text for text in header_texts)
+                near_top = t_bbox[1] < (2.0 / PT_TO_CM) + 120
+                previous_page_has_tail = page_has_previous_table_tail(doc, page_num)
 
-                if not has_header and t_bbox[1] < (2.0 / PT_TO_CM) + 150:
+                if near_top and previous_page_has_tail and not has_table_label and not has_continuation_label:
                     add_page_error(
                         report,
                         "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')",
@@ -548,6 +612,8 @@ def analyze_body_pages(doc, report, start_page=2):
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Праве поле ~{round(right_cm, 1)} см")
             if abs(top_cm - 2.0) > 0.35 and top_cm > 1.0:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
+
+    flush_bibliography_entry(report, bibliography_entry_page or start_page + 1, bibliography_entry_parts)
 
 
 def analyze_pdf(file_bytes, work_type):
