@@ -166,6 +166,30 @@ def get_text_blocks_above_table(blocks, table_top):
     return texts
 
 
+def get_first_text_line(blocks):
+    first_line = None
+    for block in blocks:
+        if "lines" not in block:
+            continue
+        for line in block["lines"]:
+            spans = [span for span in line["spans"] if span["text"].strip()]
+            if not spans:
+                continue
+            text = "".join(span["text"] for span in spans).strip()
+            if not text:
+                continue
+            candidate = {
+                "text": text,
+                "x0": line["bbox"][0],
+                "y0": line["bbox"][1],
+                "x1": line["bbox"][2],
+                "y1": line["bbox"][3],
+            }
+            if first_line is None or (candidate["y0"], candidate["x0"]) < (first_line["y0"], first_line["x0"]):
+                first_line = candidate
+    return first_line
+
+
 def table_looks_real(table, page_rect):
     x0, y0, x1, y1 = table.bbox
     width = x1 - x0
@@ -177,21 +201,6 @@ def table_looks_real(table, page_rect):
     if row_count and col_count and (row_count < 2 or col_count < 2):
         return False
     return True
-
-
-def page_has_previous_table_tail(doc, page_num):
-    if page_num <= 0:
-        return False
-    prev_page = doc[page_num - 1]
-    if not hasattr(prev_page, "find_tables"):
-        return False
-    prev_tables = prev_page.find_tables()
-    for prev_table in prev_tables.tables:
-        if not table_looks_real(prev_table, prev_page.rect):
-            continue
-        if prev_table.bbox[3] > prev_page.rect.height * 0.72:
-            return True
-    return False
 
 
 def flush_bibliography_entry(report, page_number, entry_parts):
@@ -577,6 +586,7 @@ def analyze_body_pages(doc, report, start_page=2):
 
         if hasattr(page, "find_tables"):
             tables = page.find_tables()
+            first_text_line = get_first_text_line(blocks)
             for table in tables.tables:
                 if not table_looks_real(table, rect):
                     continue
@@ -589,17 +599,17 @@ def analyze_body_pages(doc, report, start_page=2):
                     add_page_error(report, "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')", page_num + 1, "Правий край таблиці виходить за межі правого поля 1.0 см")
 
                 header_texts = get_text_blocks_above_table(blocks, t_bbox[1])
-                has_table_label = any("Таблиця" in text for text in header_texts)
-                has_continuation_label = any("Продовження" in text or "Кінець" in text for text in header_texts)
-                near_top = t_bbox[1] < (2.0 / PT_TO_CM) + 120
-                previous_page_has_tail = page_has_previous_table_tail(doc, page_num)
-
-                if near_top and previous_page_has_tail and not has_table_label and not has_continuation_label:
+                if (
+                    first_text_line
+                    and first_text_line["text"].startswith("Таблиця")
+                    and abs(first_text_line["y0"] - t_bbox[1]) < 40
+                    and not header_texts
+                ):
                     add_page_error(
                         report,
                         "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')",
                         page_num + 1,
-                        "Розірвана таблиця без обов'язкового підпису 'Продовження таблиці...' або 'Кінець таблиці...' зверху",
+                        "У першому рядку сторінки стоїть 'Таблиця ...' без тексту зверху.",
                     )
 
         if min_x < rect.width and max_x > 0:
