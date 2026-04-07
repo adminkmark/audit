@@ -82,6 +82,7 @@ def build_report():
     return {
         "Титульна сторінка": [],
         "Сторінка зі змістом": [],
+        "Нумерація сторінок (вгорі праворуч)": [],
         "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)": [],
         "Шрифт (Times New Roman)": [],
         "Розмір шрифту (14)": [],
@@ -99,13 +100,7 @@ def build_report():
 
 def truncate_report(report):
     for rule, errors in report.items():
-        unique_errors = list(dict.fromkeys(errors))
-        if len(unique_errors) > 8:
-            report[rule] = unique_errors[:8] + [
-                f"...та ще <b>{len(unique_errors) - 8} схожих помилок</b> у документі."
-            ]
-        else:
-            report[rule] = unique_errors
+        report[rule] = list(dict.fromkeys(errors))
     return report
 
 
@@ -128,6 +123,18 @@ def find_best_line(lines, pattern, expected_x=None, expected_y=None):
         return value
 
     return min(matches, key=score)
+
+
+def is_page_number_line(line, page_rect):
+    text = normalize_text(line["text"])
+    return bool(re.fullmatch(r"\d+", text)) and line["x1"] > page_rect.width * 0.8 and line["y1"] < page_rect.height * 0.12
+
+
+def validate_page_number(page, report, page_number):
+    lines = extract_lines(page)
+    page_line = next((line for line in lines if is_page_number_line(line, page.rect)), None)
+    if page_line is None:
+        add_page_error(report, "Нумерація сторінок (вгорі праворуч)", page_number, "Не знайдено номер сторінки у верхньому правому куті.")
 
 
 def validate_line(lines, rule_errors, page_number, spec):
@@ -326,7 +333,10 @@ def validate_title_page(page, work_type, report):
     return validate_page_against_sample(page, "Титульна сторінка", 1, get_title_config(work_type), report)
 
 
-def validate_contents_page(page, report):
+def validate_contents_page(page, report, work_type):
+    if work_type in {"Звіт з практики (Бакалавр)", "Звіт з практики (Магістр)"}:
+        lines = extract_lines(page)
+        return find_best_line(lines, r"^ЗМІСТ$") is not None
     return validate_page_against_sample(page, "Сторінка зі змістом", 2, get_contents_config(), report)
 
 
@@ -338,6 +348,8 @@ def analyze_body_pages(doc, report, start_page=2):
         page = doc[page_num]
         rect = page.rect
         blocks = page.get_text("dict")["blocks"]
+        page_lines = extract_lines(page)
+        validate_page_number(page, report, page_num + 1)
         min_x = rect.width
         max_x = 0
         min_y = rect.height
@@ -345,6 +357,27 @@ def analyze_body_pages(doc, report, start_page=2):
 
         for block in blocks:
             if "lines" not in block:
+                continue
+
+            block_lines = []
+            for raw_line in block["lines"]:
+                spans = [span for span in raw_line["spans"] if span["text"].strip()]
+                if not spans:
+                    continue
+                block_text = "".join(span["text"] for span in spans).strip()
+                if not block_text:
+                    continue
+                block_lines.append(
+                    {
+                        "text": block_text,
+                        "x0": raw_line["bbox"][0],
+                        "y0": raw_line["bbox"][1],
+                        "x1": raw_line["bbox"][2],
+                        "y1": raw_line["bbox"][3],
+                    }
+                )
+
+            if block_lines and all(is_page_number_line(line, rect) for line in block_lines):
                 continue
 
             bbox = block["bbox"]
@@ -503,7 +536,8 @@ def analyze_pdf(file_bytes, work_type):
             return {"report": report, "stop_message": "Завантажте будь ласка роботу з титульною сторінкою та змістом"}
 
         title_ok = validate_title_page(doc[0], work_type, report)
-        contents_ok = validate_contents_page(doc[1], report)
+        validate_page_number(doc[1], report, 2)
+        contents_ok = validate_contents_page(doc[1], report, work_type)
         if not title_ok or not contents_ok:
             return {"report": report, "stop_message": "Завантажте будь ласка роботу з титульною сторінкою та змістом"}
 
