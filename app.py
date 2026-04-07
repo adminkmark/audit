@@ -1,6 +1,11 @@
-from app_impl import run_app
-run_app()
-raise SystemExit
+try:
+    from app_impl import run_app
+except ModuleNotFoundError:
+    run_app = None
+
+if run_app is not None:
+    run_app()
+    raise SystemExit
 
 import streamlit as st
 import pymupdf
