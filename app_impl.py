@@ -137,6 +137,24 @@ def validate_page_number(page, report, page_number):
         add_page_error(report, "Нумерація сторінок (вгорі праворуч)", page_number, "Не знайдено номер сторінки у верхньому правому куті.")
 
 
+def normalize_font_size(size):
+    return int(round(size))
+
+
+def format_vertical_shift(delta_y, base_size):
+    direction = "вниз" if delta_y > 0 else "вгору"
+    line_height = max(base_size * 1.5, 12)
+    lines = max(1, round(abs(delta_y) / line_height))
+    return direction, lines
+
+
+def format_horizontal_shift(delta_x, base_size):
+    direction = "праворуч" if delta_x > 0 else "ліворуч"
+    char_width = max(base_size * 0.55, 6)
+    chars = max(1, round(abs(delta_x) / char_width))
+    return direction, chars
+
+
 def validate_line(lines, rule_errors, page_number, spec):
     line = find_best_line(
         lines,
@@ -150,19 +168,21 @@ def validate_line(lines, rule_errors, page_number, spec):
         return False
 
     if "x" in spec and abs(line["x0"] - spec["x"]) > spec.get("x_tol", 24):
+        direction, chars = format_horizontal_shift(line["x0"] - spec["x"], spec.get("size", line["size"]))
         rule_errors.append(
-            f"<b>Сторінка {page_number}</b>: '{label}' зміщено по горизонталі "
-            f"(очікувано x={round(spec['x'], 1)}, фактично x={round(line['x0'], 1)})."
+            f"<b>Сторінка {page_number}</b>: '{label}' зміщено по горизонталі {direction} на {chars} знаків."
         )
     if "y" in spec and abs(line["y0"] - spec["y"]) > spec.get("y_tol", 16):
+        direction, lines_count = format_vertical_shift(line["y0"] - spec["y"], spec.get("size", line["size"]))
         rule_errors.append(
-            f"<b>Сторінка {page_number}</b>: '{label}' зміщено по вертикалі "
-            f"(очікувано y={round(spec['y'], 1)}, фактично y={round(line['y0'], 1)})."
+            f"<b>Сторінка {page_number}</b>: '{label}' зміщено по вертикалі {direction} на {lines_count} строк."
         )
-    if "size" in spec and abs(line["size"] - spec["size"]) > spec.get("size_tol", 1.0):
+    expected_size = normalize_font_size(spec["size"]) if "size" in spec else None
+    actual_size = normalize_font_size(line["size"])
+    if expected_size is not None and actual_size != expected_size:
         rule_errors.append(
-            f"<b>Сторінка {page_number}</b>: '{label}' має розмір шрифту {line['size']}, "
-            f"а за зразком очікується приблизно {spec['size']}."
+            f"<b>Сторінка {page_number}</b>: '{label}' має розмір шрифту {actual_size}, "
+            f"а за зразком очікується {expected_size}."
         )
     if "bold" in spec and line["bold"] != spec["bold"]:
         expected = "жирним" if spec["bold"] else "звичайним"
@@ -430,13 +450,15 @@ def analyze_body_pages(doc, report, start_page=2):
                             page_num + 1,
                             f"<code>{font_name}</code>. <i>'{text_strip[:25]}...'</i>",
                         )
-                    if abs(font_size - expected_size) > 0.5 and font_size >= 10 and not text_strip.isupper():
-                        suffix = " (допустимо лише в таблицях)" if 10 <= font_size <= 12.5 else ""
+                    normalized_font_size = normalize_font_size(font_size)
+                    normalized_expected_size = normalize_font_size(expected_size)
+                    if normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
+                        suffix = " (допустимо лише в таблицях)" if 10 <= normalized_font_size <= 12 else ""
                         add_page_error(
                             report,
                             "Розмір шрифту (14)",
                             page_num + 1,
-                            f"Розмір {round(font_size, 1)}{suffix}. <i>'{text_strip[:25]}...'</i>",
+                            f"Розмір {normalized_font_size}{suffix}. <i>'{text_strip[:25]}...'</i>",
                         )
 
             full_text_strip = full_text.strip()
