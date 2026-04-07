@@ -300,8 +300,8 @@ def get_contents_config():
             r"^ЗМІСТ$",
             r"^ВСТУП",
             r"РОЗДІЛ\s+1",
-            r"ВИСНОВКИ",
-            r"СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ",
+            r"ВИСНОВ(ОК|КИ)",
+            r"(СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ|ДЖЕРЕЛА)",
         ],
         "required_matches": 4,
         "templates": [
@@ -309,8 +309,8 @@ def get_contents_config():
             {"label": "Рядок 'ВСТУП'", "sample_pattern": r"^ВСТУП", "upload_pattern": r"^ВСТУП", "x_tol": 30},
             {"label": "Розділ 1", "sample_pattern": r"РОЗДІЛ\s+1", "upload_pattern": r"РОЗДІЛ\s+1", "x_tol": 40},
             {"label": "Підрозділ 1.1", "sample_pattern": r"^1\.1\.", "upload_pattern": r"^1\.1\.", "x_tol": 30},
-            {"label": "Висновки", "sample_pattern": r"^ВИСНОВКИ", "upload_pattern": r"^ВИСНОВКИ", "x_tol": 30},
-            {"label": "Список використаних джерел", "sample_pattern": r"^СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ", "upload_pattern": r"^СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ", "x_tol": 30},
+            {"label": "Висновки", "sample_pattern": r"^ВИСНОВКИ", "upload_pattern": r"^ВИСНОВ(ОК|КИ)", "x_tol": 30},
+            {"label": "Список використаних джерел", "sample_pattern": r"^СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ", "upload_pattern": r"^(СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ|ДЖЕРЕЛА)", "x_tol": 30},
             {"label": "Номер сторінки для 'ВСТУП'", "sample_pattern": r"^3$", "upload_pattern": r"^\d+$", "x_tol": 25},
             {"label": "Номер сторінки для 'Списку джерел'", "sample_pattern": r"^72$", "upload_pattern": r"^\d+$", "x_tol": 25},
         ],
@@ -533,13 +533,19 @@ def analyze_pdf(file_bytes, work_type):
     try:
         report = build_report()
         if len(doc) < 2:
-            return {"report": report, "stop_message": "Завантажте будь ласка роботу з титульною сторінкою та змістом"}
+            return {"report": report, "stop_message": "Не знайдено титульний лист і сторінку зі змістом."}
 
         title_ok = validate_title_page(doc[0], work_type, report)
         validate_page_number(doc[1], report, 2)
         contents_ok = validate_contents_page(doc[1], report, work_type)
         if not title_ok or not contents_ok:
-            return {"report": report, "stop_message": "Завантажте будь ласка роботу з титульною сторінкою та змістом"}
+            if not title_ok and not contents_ok:
+                stop_message = "Не знайдено титульний лист і сторінку зі змістом."
+            elif not title_ok:
+                stop_message = "Не знайдено титульний лист."
+            else:
+                stop_message = "Не знайдено сторінку зі змістом."
+            return {"report": report, "stop_message": stop_message}
 
         analyze_body_pages(doc, report, start_page=2)
         return {"report": truncate_report(report), "stop_message": None}
