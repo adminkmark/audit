@@ -1,3 +1,7 @@
+from app_impl import run_app
+run_app()
+raise SystemExit
+
 import streamlit as st
 import pymupdf
 import re
@@ -263,7 +267,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🎓 Інспектор оформлення (PDF)")
-st.write("Скрипт перевіряє документ за всіма загальними правилами методички НУЕ (підходить для курсових, звітів з практики, дипломних тощо).")
+st.write("Скрипт перевіряє документ за всіма загальними правилами методички КНЕУ (підходить для курсових, звітів з практики, дипломних тощо).")
 
 uploaded_file = st.file_uploader("Завантажте PDF-файл вашої роботи", type=["pdf"])
 
