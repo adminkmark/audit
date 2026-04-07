@@ -580,21 +580,129 @@ def run_app():
     st.markdown(
         """
 <style>
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(196, 224, 255, 0.9), transparent 30%),
+            radial-gradient(circle at top right, rgba(255, 226, 196, 0.85), transparent 28%),
+            linear-gradient(180deg, #f7f2ea 0%, #eef3f8 100%);
+    }
+    .main .block-container {
+        max-width: 900px;
+        padding-top: 2.2rem;
+        padding-bottom: 3rem;
+    }
+    .hero-card {
+        padding: 1.6rem 1.7rem;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.76);
+        border: 1px solid rgba(137, 109, 74, 0.14);
+        box-shadow: 0 24px 60px rgba(108, 86, 61, 0.12);
+        backdrop-filter: blur(10px);
+        animation: fadeUp 0.75s ease-out;
+    }
+    .hero-kicker {
+        display: inline-block;
+        margin-bottom: 0.8rem;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        background: #16324f;
+        color: #f6efe6;
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .hero-title {
+        margin: 0;
+        color: #14263d;
+        font-size: 2.4rem;
+        line-height: 1.08;
+        font-weight: 800;
+    }
+    .hero-text {
+        margin: 0.9rem 0 0 0;
+        color: #4f5e6f;
+        font-size: 1.02rem;
+        line-height: 1.65;
+    }
+    .panel-card {
+        margin-top: 1rem;
+        padding: 1.15rem 1.2rem 0.55rem 1.2rem;
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid rgba(137, 109, 74, 0.12);
+        box-shadow: 0 18px 40px rgba(108, 86, 61, 0.08);
+        animation: fadeUp 0.9s ease-out;
+    }
+    .panel-note {
+        margin: 0 0 0.9rem 0;
+        color: #5f6f7f;
+        font-size: 0.97rem;
+    }
+    [data-testid="stSelectbox"], [data-testid="stFileUploader"] {
+        animation: fadeUp 1s ease-out;
+    }
     [data-testid="stExpander"] details summary p span { position: absolute; right: 45px; }
     [data-testid="stAlert"] p span { position: absolute; right: 20px; }
     [data-testid="stExpander"] details summary p, [data-testid="stAlert"] p { padding-right: 120px; }
+    [data-testid="stExpander"] {
+        border-radius: 18px;
+        overflow: hidden;
+        border: 1px solid rgba(137, 109, 74, 0.12);
+        box-shadow: 0 12px 26px rgba(108, 86, 61, 0.07);
+        background: rgba(255, 255, 255, 0.84);
+    }
+    [data-testid="stFileUploader"] section {
+        border-radius: 18px;
+        border: 1.5px dashed rgba(22, 50, 79, 0.28);
+        background: rgba(247, 242, 234, 0.72);
+    }
+    @keyframes fadeUp {
+        from {
+            opacity: 0;
+            transform: translateY(16px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
 </style>
 """,
         unsafe_allow_html=True,
     )
 
-    st.title("🎓 Інспектор оформлення студентських робіт")
-    st.write("Застосунок перевіряє титульну сторінку, зміст і основний текст PDF-роботи за правилами оформлення.")
-    work_type = st.selectbox("Оберіть напрям вашої роботи", WORK_OPTIONS)
+    st.markdown(
+        """
+<div class="hero-card">
+    <div class="hero-kicker">PDF Inspector</div>
+    <h1 class="hero-title">Інспектор оформлення студентських робіт</h1>
+    <p class="hero-text">
+        Застосунок перевіряє титульну сторінку, зміст і основний текст PDF-роботи
+        за правилами оформлення та показує всі знайдені помилки по сторінках.
+    </p>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+<div class="panel-card">
+    <p class="panel-note">Спочатку оберіть напрям роботи, потім завантажте PDF з титульною сторінкою та змістом.</p>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    work_type = st.selectbox(
+        "Оберіть напрям вашої роботи",
+        WORK_OPTIONS,
+        index=None,
+        placeholder="Оберіть напрям зі списку",
+    )
     st.info("Завантажуйте будь ласка роботу обов'язково з титульною сторінкою та змістом")
     uploaded_file = st.file_uploader("Завантажте PDF-файл вашої роботи", type=["pdf"])
 
-    if uploaded_file is None:
+    if work_type is None or uploaded_file is None:
         return
 
     with st.spinner("Сканую документ..."):
