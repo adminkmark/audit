@@ -203,6 +203,10 @@ def table_looks_real(table, page_rect):
     return True
 
 
+def point_in_bbox(x, y, bbox, padding=0):
+    return (bbox[0] - padding) <= x <= (bbox[2] + padding) and (bbox[1] - padding) <= y <= (bbox[3] + padding)
+
+
 def flush_bibliography_entry(report, page_number, entry_parts):
     if not entry_parts:
         return
@@ -435,6 +439,10 @@ def analyze_body_pages(doc, report, start_page=2):
         blocks = page.get_text("dict")["blocks"]
         page_lines = extract_lines(page)
         validate_page_number(page, report, page_num + 1)
+        table_bboxes = []
+        if hasattr(page, "find_tables"):
+            tables = page.find_tables()
+            table_bboxes = [table.bbox for table in tables.tables if table_looks_real(table, rect)]
         min_x = rect.width
         max_x = 0
         min_y = rect.height
@@ -508,6 +516,9 @@ def analyze_body_pages(doc, report, start_page=2):
 
                     font_name = span["font"]
                     font_size = span["size"]
+                    span_center_x = (span["bbox"][0] + span["bbox"][2]) / 2
+                    span_center_y = (span["bbox"][1] + span["bbox"][3]) / 2
+                    inside_table = any(point_in_bbox(span_center_x, span_center_y, bbox, padding=2) for bbox in table_bboxes)
                     if "Times" not in font_name and "Symbol" not in font_name:
                         add_page_error(
                             report,
@@ -517,7 +528,7 @@ def analyze_body_pages(doc, report, start_page=2):
                         )
                     normalized_font_size = normalize_font_size(font_size)
                     normalized_expected_size = normalize_font_size(expected_size)
-                    if normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
+                    if not inside_table and normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
                         suffix = " (допустимо лише в таблицях)" if 10 <= normalized_font_size <= 12 else ""
                         add_page_error(
                             report,
@@ -584,13 +595,9 @@ def analyze_body_pages(doc, report, start_page=2):
                 elif bibliography_entry_parts:
                     bibliography_entry_parts.append(full_text_strip)
 
-        if hasattr(page, "find_tables"):
-            tables = page.find_tables()
+        if table_bboxes:
             first_text_line = get_first_text_line(blocks)
-            for table in tables.tables:
-                if not table_looks_real(table, rect):
-                    continue
-                t_bbox = table.bbox
+            for t_bbox in table_bboxes:
                 expected_left = 2.5 / PT_TO_CM
                 expected_right = 1.0 / PT_TO_CM
                 if t_bbox[0] < expected_left - 5:
