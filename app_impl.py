@@ -279,8 +279,15 @@ def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_biblio
     if len(page_text) < 20:
         return
 
+    try:
+        matches = tool.check(page_text)
+    except Exception as exc:
+        if not any("Перевірка тимчасово недоступна" in error for error in report["Орфографія"]):
+            add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{exc}</i>")
+        return
+
     seen_messages = set()
-    for match in tool.check(page_text):
+    for match in matches:
         if match.ruleIssueType not in {"misspelling", "typographical"}:
             continue
         token = page_text[match.offset : match.offset + match.errorLength].strip()
