@@ -25,6 +25,9 @@ TITLE_SAMPLE_MAP = {
 }
 
 CONTENTS_SAMPLE_FILE = "Зразок зміст.pdf"
+SPELLING_MAX_PAGES = 12
+SPELLING_CHAR_LIMIT = 1800
+SPELLING_MATCH_LIMIT = 8
 
 
 def normalize_text(text):
@@ -278,6 +281,7 @@ def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_biblio
     page_text = "\n".join(page_text_parts)
     if len(page_text) < 20:
         return
+    page_text = page_text[:SPELLING_CHAR_LIMIT]
 
     try:
         matches = tool.check(page_text)
@@ -301,6 +305,8 @@ def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_biblio
             continue
         seen_messages.add(message)
         add_page_error(report, "Орфографія", page_number, message)
+        if len(seen_messages) >= SPELLING_MATCH_LIMIT:
+            break
 
 
 def validate_line(lines, rule_errors, page_number, spec):
@@ -711,7 +717,13 @@ def analyze_body_pages(doc, report, start_page=2):
             if abs(top_cm - 2.0) > 0.35 and top_cm > 1.0:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
 
-        analyze_spelling_for_page(page, report, page_num + 1, table_bboxes, in_bibliography)
+        if page_num - start_page < SPELLING_MAX_PAGES:
+            analyze_spelling_for_page(page, report, page_num + 1, table_bboxes, in_bibliography)
+
+    if len(doc) - start_page > SPELLING_MAX_PAGES:
+        report["Орфографія"].append(
+            f"<b>Примітка</b>: Для швидкої роботи орфографію перевірено лише на перших {SPELLING_MAX_PAGES} сторінках основного тексту."
+        )
 
     flush_bibliography_entry(report, bibliography_entry_page or start_page + 1, bibliography_entry_parts)
 
