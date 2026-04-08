@@ -20,10 +20,10 @@ RUN pip install --upgrade pip && \
 
 COPY app.py .
 COPY app_impl.py .
-COPY "Зразок зміст.pdf" .
-COPY "Тітулка Курсова.pdf" .
-COPY "Тітульна КБР.pdf" .
-COPY "Тітульний Практика.pdf" .
+COPY ["Зразок зміст.pdf", "./"]
+COPY ["Тітулка Курсова.pdf", "./"]
+COPY ["Тітульна КБР.pdf", "./"]
+COPY ["Тітульний Практика.pdf", "./"]
 
 EXPOSE 8501
 
