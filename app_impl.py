@@ -244,6 +244,25 @@ def is_body_margin_text(text):
     return True
 
 
+def is_figure_like_block(text, bbox, rect):
+    if not text:
+        return False
+    upper_text = text.upper()
+    if upper_text.startswith(("РИСУНОК", "РИС.", "ТАБЛИЦЯ", "КІНЕЦЬ ТАБЛИЦІ", "ПРОДОВЖЕННЯ ТАБЛИЦІ")):
+        return False
+    if upper_text in {"ВСТУП", "ВИСНОВКИ", "ДОДАТКИ"} or upper_text.startswith("РОЗДІЛ"):
+        return False
+    if re.match(r"^\d+\.\d+\s+[А-ЯІЇЄҐA-Z]", text):
+        return False
+
+    width = bbox[2] - bbox[0]
+    page_width = rect.width
+    centered = abs(bbox[0] - (page_width - bbox[2])) < 45
+    narrow = width < page_width * 0.62
+    short_text = len(text) < 180
+    return short_text and (narrow or centered) and not is_body_margin_text(text)
+
+
 def collect_margin_bboxes(blocks, rect, table_bboxes):
     top_bboxes = []
     body_bboxes = []
@@ -599,30 +618,36 @@ def analyze_body_pages(doc, report, start_page=2):
                 for span in line["spans"]:
                     text_strip = span["text"].strip()
                     full_text += text_strip + " "
-                    if len(text_strip) <= 5:
-                        continue
-
-                    font_name = span["font"]
-                    font_size = span["size"]
-                    if "Times" not in font_name and "Symbol" not in font_name:
-                        add_page_error(
-                            report,
-                            "Шрифт (Times New Roman)",
-                            page_num + 1,
-                            f"<code>{font_name}</code>. <i>'{text_strip[:25]}...'</i>",
-                        )
-                    normalized_font_size = normalize_font_size(font_size)
-                    normalized_expected_size = normalize_font_size(expected_size)
-                    if normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
-                        suffix = " (допустимо лише в таблицях)" if 10 <= normalized_font_size <= 12 else ""
-                        add_page_error(
-                            report,
-                            "Розмір шрифту (14)",
-                            page_num + 1,
-                            f"Розмір {normalized_font_size}{suffix}. <i>'{text_strip[:25]}...'</i>",
-                        )
-
             full_text_strip = full_text.strip()
+            skip_style_checks = is_figure_like_block(full_text_strip, bbox, rect)
+
+            if not skip_style_checks:
+                for line in lines:
+                    for span in line["spans"]:
+                        text_strip = span["text"].strip()
+                        if len(text_strip) <= 5:
+                            continue
+
+                        font_name = span["font"]
+                        font_size = span["size"]
+                        if "Times" not in font_name and "Symbol" not in font_name:
+                            add_page_error(
+                                report,
+                                "Шрифт (Times New Roman)",
+                                page_num + 1,
+                                f"<code>{font_name}</code>. <i>'{text_strip[:25]}...'</i>",
+                            )
+                        normalized_font_size = normalize_font_size(font_size)
+                        normalized_expected_size = normalize_font_size(expected_size)
+                        if normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
+                            suffix = " (допустимо лише в таблицях)" if 10 <= normalized_font_size <= 12 else ""
+                            add_page_error(
+                                report,
+                                "Розмір шрифту (14)",
+                                page_num + 1,
+                                f"Розмір {normalized_font_size}{suffix}. <i>'{text_strip[:25]}...'</i>",
+                            )
+
             if full_text_strip in ["ВСТУП", "ВИСНОВКИ", "СПИСОК ВИКОРИСТАНИХ ДЖЕРЕЛ", "ДОДАТКИ"] or full_text_strip.startswith("РОЗДІЛ"):
                 if full_text_strip.startswith("РОЗДІЛ") and re.search(r"РОЗДІЛ\s+\d+\.", full_text_strip):
                     add_page_error(report, "Оформлення заголовків (ВЕЛИКІ ЛІТЕРИ, по центру)", page_num + 1, f"Заборонена крапка після номера розділу: '{full_text_strip}'")
