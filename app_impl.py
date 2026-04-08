@@ -547,12 +547,15 @@ def analyze_body_pages(doc, report, start_page=2):
                 continue
 
             bbox = block["bbox"]
+            block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
+            if block_inside_table:
+                continue
+
             min_x = min(min_x, bbox[0])
             min_y = min(min_y, bbox[1])
             max_x = max(max_x, bbox[2])
             max_y = max(max_y, bbox[3])
             lines = block["lines"]
-            block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
 
             if len(lines) > 1:
                 first_line_x = lines[0]["bbox"][0]
@@ -590,11 +593,6 @@ def analyze_body_pages(doc, report, start_page=2):
 
                     font_name = span["font"]
                     font_size = span["size"]
-                    span_center_x = (span["bbox"][0] + span["bbox"][2]) / 2
-                    span_center_y = (span["bbox"][1] + span["bbox"][3]) / 2
-                    inside_table = block_inside_table or any(
-                        point_in_bbox(span_center_x, span_center_y, table_bbox, padding=4) for table_bbox in table_bboxes
-                    )
                     if "Times" not in font_name and "Symbol" not in font_name:
                         add_page_error(
                             report,
@@ -604,7 +602,7 @@ def analyze_body_pages(doc, report, start_page=2):
                         )
                     normalized_font_size = normalize_font_size(font_size)
                     normalized_expected_size = normalize_font_size(expected_size)
-                    if not inside_table and normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
+                    if normalized_font_size != normalized_expected_size and font_size >= 10 and not text_strip.isupper():
                         suffix = " (допустимо лише в таблицях)" if 10 <= normalized_font_size <= 12 else ""
                         add_page_error(
                             report,
