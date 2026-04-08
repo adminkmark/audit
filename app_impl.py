@@ -437,7 +437,6 @@ def analyze_body_pages(doc, report, start_page=2):
         page = doc[page_num]
         rect = page.rect
         blocks = page.get_text("dict")["blocks"]
-        page_lines = extract_lines(page)
         validate_page_number(page, report, page_num + 1)
         table_bboxes = []
         if hasattr(page, "find_tables"):
@@ -641,7 +640,6 @@ def analyze_pdf(file_bytes, work_type):
             return {"report": report, "stop_message": "Не знайдено титульний лист і сторінку зі змістом."}
 
         title_ok = validate_title_page(doc[0], work_type, report)
-        validate_page_number(doc[1], report, 2)
         contents_ok = validate_contents_page(doc[1], report, work_type)
         if not title_ok or not contents_ok:
             if not title_ok and not contents_ok:
