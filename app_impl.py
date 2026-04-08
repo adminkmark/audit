@@ -1,6 +1,5 @@
 import re
 
-import language_tool_python
 import pymupdf
 import streamlit as st
 
@@ -25,9 +24,6 @@ TITLE_SAMPLE_MAP = {
 }
 
 CONTENTS_SAMPLE_FILE = "Зразок зміст.pdf"
-SPELLING_MAX_PAGES = 12
-SPELLING_CHAR_LIMIT = 1800
-SPELLING_MATCH_LIMIT = 8
 
 
 def normalize_text(text):
@@ -99,7 +95,6 @@ def build_report():
         "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')": [],
         "Оформлення формул (Номер праворуч у дужках)": [],
         "Список використаних джерел (ДСТУ 8302:2015)": [],
-        "Орфографія": [],
     }
 
 
@@ -234,79 +229,6 @@ def flush_bibliography_entry(report, page_number, entry_parts):
             page_number,
             f"Можлива помилка ДСТУ (не знайдено року видання): <i>'{entry_text[:90]}...'</i>",
         )
-
-
-@st.cache_resource(show_spinner=False)
-def get_spelling_tool():
-    try:
-        return language_tool_python.LanguageTool("uk-UA"), None
-    except Exception as exc:
-        return None, str(exc)
-
-
-def block_is_heading(text):
-    normalized = normalize_text(text)
-    if not normalized:
-        return False
-    return normalized.isupper() or normalized.startswith("РОЗДІЛ") or normalized.startswith("Таблиця") or normalized.startswith("Рисунок")
-
-
-def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_bibliography):
-    tool, tool_error = get_spelling_tool()
-    if tool is None:
-        if not any("Перевірка тимчасово недоступна" in error for error in report["Орфографія"]):
-            add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{tool_error}</i>")
-        return
-
-    page_text_parts = []
-    for block in page.get_text("dict")["blocks"]:
-        if "lines" not in block:
-            continue
-        if any(bboxes_intersect(block["bbox"], table_bbox, padding=4) for table_bbox in table_bboxes):
-            continue
-        block_text = "".join(span["text"] for line in block["lines"] for span in line["spans"]).strip()
-        block_text = normalize_text(block_text)
-        if not block_text:
-            continue
-        if block_is_heading(block_text):
-            continue
-        if "http" in block_text.lower() or "www." in block_text.lower():
-            continue
-        if re.fullmatch(r"\d+", block_text):
-            continue
-        if in_bibliography:
-            continue
-        page_text_parts.append(block_text)
-
-    page_text = "\n".join(page_text_parts)
-    if len(page_text) < 20:
-        return
-    page_text = page_text[:SPELLING_CHAR_LIMIT]
-
-    try:
-        matches = tool.check(page_text)
-    except Exception as exc:
-        if not any("Перевірка тимчасово недоступна" in error for error in report["Орфографія"]):
-            add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{exc}</i>")
-        return
-
-    seen_messages = set()
-    for match in matches:
-        if match.ruleIssueType not in {"misspelling", "typographical"}:
-            continue
-        token = page_text[match.offset : match.offset + match.errorLength].strip()
-        if not token or len(token) <= 1 or any(ch.isdigit() for ch in token):
-            continue
-        if re.search(r"[A-ZА-ЯІЇЄҐ]{2,}", token):
-            continue
-        suggestions = ", ".join(match.replacements[:3]) if match.replacements else "немає підказки"
-        message = f"Можлива помилка: <i>'{token}'</i>. Варіанти: <i>{suggestions}</i>"
-        if message in seen_messages:
-            continue
-        seen_messages.add(message)
-        add_page_error(report, "Орфографія", page_number, message)
-        if len(seen_messages) >= SPELLING_MATCH_LIMIT:
-            break
 
 
 def validate_line(lines, rule_errors, page_number, spec):
@@ -716,14 +638,6 @@ def analyze_body_pages(doc, report, start_page=2):
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Праве поле ~{round(right_cm, 1)} см")
             if abs(top_cm - 2.0) > 0.35 and top_cm > 1.0:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
-
-        if page_num - start_page < SPELLING_MAX_PAGES:
-            analyze_spelling_for_page(page, report, page_num + 1, table_bboxes, in_bibliography)
-
-    if len(doc) - start_page > SPELLING_MAX_PAGES:
-        report["Орфографія"].append(
-            f"<b>Примітка</b>: Для швидкої роботи орфографію перевірено лише на перших {SPELLING_MAX_PAGES} сторінках основного тексту."
-        )
 
     flush_bibliography_entry(report, bibliography_entry_page or start_page + 1, bibliography_entry_parts)
 

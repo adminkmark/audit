@@ -11,10 +11,6 @@ ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 COPY requirements.txt .
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends default-jre-headless ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
-
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt
 
