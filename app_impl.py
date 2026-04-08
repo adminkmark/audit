@@ -236,7 +236,7 @@ def flush_bibliography_entry(report, page_number, entry_parts):
 @st.cache_resource(show_spinner=False)
 def get_spelling_tool():
     try:
-        return language_tool_python.LanguageToolPublicAPI("uk-UA"), None
+        return language_tool_python.LanguageTool("uk-UA"), None
     except Exception as exc:
         return None, str(exc)
 
@@ -251,7 +251,8 @@ def block_is_heading(text):
 def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_bibliography):
     tool, tool_error = get_spelling_tool()
     if tool is None:
-        add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{tool_error}</i>")
+        if not any("Перевірка тимчасово недоступна" in error for error in report["Орфографія"]):
+            add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{tool_error}</i>")
         return
 
     page_text_parts = []
