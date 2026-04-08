@@ -647,7 +647,7 @@ def analyze_body_pages(doc, report, start_page=2):
                     indent_cm = abs_indent * PT_TO_CM
                     add_page_error(report, "Оформлення підрозділів (Відступ 1.5 см, без крапки в кінці)", page_num + 1, f"Відступ підрозділу ~{round(indent_cm, 1)} см (має бути 1.5 см): '{full_text_strip}'")
 
-            if full_text_strip.startswith("Рисунок"):
+            if re.match(r"^(Рисунок|Рис\.)\s*", full_text_strip):
                 if not re.search(r"Рисунок\s+(\d+\.\d+|[А-Я]\.\d+)\s+[-–]\s+", full_text_strip) and len(full_text_strip) < 150:
                     add_page_error(report, "Підписи до рисунків (Формат: Рисунок X.X - Назва)", page_num + 1, f"Неправильний формат: <i>'{full_text_strip[:45]}...'</i>")
 
