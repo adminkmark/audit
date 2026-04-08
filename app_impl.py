@@ -1,5 +1,6 @@
 import re
 
+import language_tool_python
 import pymupdf
 import streamlit as st
 
@@ -95,6 +96,7 @@ def build_report():
         "Межі та розриви таблиць (Не виходять за поля, наявність 'Продовження')": [],
         "Оформлення формул (Номер праворуч у дужках)": [],
         "Список використаних джерел (ДСТУ 8302:2015)": [],
+        "Орфографія": [],
     }
 
 
@@ -207,6 +209,15 @@ def point_in_bbox(x, y, bbox, padding=0):
     return (bbox[0] - padding) <= x <= (bbox[2] + padding) and (bbox[1] - padding) <= y <= (bbox[3] + padding)
 
 
+def bboxes_intersect(bbox1, bbox2, padding=0):
+    return not (
+        bbox1[2] < bbox2[0] - padding
+        or bbox1[0] > bbox2[2] + padding
+        or bbox1[3] < bbox2[1] - padding
+        or bbox1[1] > bbox2[3] + padding
+    )
+
+
 def flush_bibliography_entry(report, page_number, entry_parts):
     if not entry_parts:
         return
@@ -220,6 +231,68 @@ def flush_bibliography_entry(report, page_number, entry_parts):
             page_number,
             f"Можлива помилка ДСТУ (не знайдено року видання): <i>'{entry_text[:90]}...'</i>",
         )
+
+
+@st.cache_resource(show_spinner=False)
+def get_spelling_tool():
+    try:
+        return language_tool_python.LanguageToolPublicAPI("uk-UA"), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def block_is_heading(text):
+    normalized = normalize_text(text)
+    if not normalized:
+        return False
+    return normalized.isupper() or normalized.startswith("РОЗДІЛ") or normalized.startswith("Таблиця") or normalized.startswith("Рисунок")
+
+
+def analyze_spelling_for_page(page, report, page_number, table_bboxes, in_bibliography):
+    tool, tool_error = get_spelling_tool()
+    if tool is None:
+        add_page_error(report, "Орфографія", page_number, f"Перевірка тимчасово недоступна: <i>{tool_error}</i>")
+        return
+
+    page_text_parts = []
+    for block in page.get_text("dict")["blocks"]:
+        if "lines" not in block:
+            continue
+        if any(bboxes_intersect(block["bbox"], table_bbox, padding=4) for table_bbox in table_bboxes):
+            continue
+        block_text = "".join(span["text"] for line in block["lines"] for span in line["spans"]).strip()
+        block_text = normalize_text(block_text)
+        if not block_text:
+            continue
+        if block_is_heading(block_text):
+            continue
+        if "http" in block_text.lower() or "www." in block_text.lower():
+            continue
+        if re.fullmatch(r"\d+", block_text):
+            continue
+        if in_bibliography:
+            continue
+        page_text_parts.append(block_text)
+
+    page_text = "\n".join(page_text_parts)
+    if len(page_text) < 20:
+        return
+
+    seen_messages = set()
+    for match in tool.check(page_text):
+        if match.ruleIssueType not in {"misspelling", "typographical"}:
+            continue
+        token = page_text[match.offset : match.offset + match.errorLength].strip()
+        if not token or len(token) <= 1 or any(ch.isdigit() for ch in token):
+            continue
+        if re.search(r"[A-ZА-ЯІЇЄҐ]{2,}", token):
+            continue
+        suggestions = ", ".join(match.replacements[:3]) if match.replacements else "немає підказки"
+        message = f"Можлива помилка: <i>'{token}'</i>. Варіанти: <i>{suggestions}</i>"
+        if message in seen_messages:
+            continue
+        seen_messages.add(message)
+        add_page_error(report, "Орфографія", page_number, message)
 
 
 def validate_line(lines, rule_errors, page_number, spec):
@@ -478,6 +551,7 @@ def analyze_body_pages(doc, report, start_page=2):
             max_x = max(max_x, bbox[2])
             max_y = max(max_y, bbox[3])
             lines = block["lines"]
+            block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
 
             if len(lines) > 1:
                 first_line_x = lines[0]["bbox"][0]
@@ -517,7 +591,9 @@ def analyze_body_pages(doc, report, start_page=2):
                     font_size = span["size"]
                     span_center_x = (span["bbox"][0] + span["bbox"][2]) / 2
                     span_center_y = (span["bbox"][1] + span["bbox"][3]) / 2
-                    inside_table = any(point_in_bbox(span_center_x, span_center_y, bbox, padding=2) for bbox in table_bboxes)
+                    inside_table = block_inside_table or any(
+                        point_in_bbox(span_center_x, span_center_y, table_bbox, padding=4) for table_bbox in table_bboxes
+                    )
                     if "Times" not in font_name and "Symbol" not in font_name:
                         add_page_error(
                             report,
@@ -629,6 +705,8 @@ def analyze_body_pages(doc, report, start_page=2):
             if abs(top_cm - 2.0) > 0.35 and top_cm > 1.0:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
 
+        analyze_spelling_for_page(page, report, page_num + 1, table_bboxes, in_bibliography)
+
     flush_bibliography_entry(report, bibliography_entry_page or start_page + 1, bibliography_entry_parts)
 
 
@@ -719,8 +797,29 @@ def run_app():
         color: #5f6f7f;
         font-size: 0.97rem;
     }
+    [data-testid="stSelectbox"] label p {
+        color: #16324f !important;
+        font-weight: 700;
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        background: #16324f !important;
+        border: 1px solid #16324f !important;
+        border-radius: 16px !important;
+        color: #ffffff !important;
+        box-shadow: 0 10px 24px rgba(22, 50, 79, 0.18);
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] span {
+        color: #ffffff !important;
+    }
+    [data-testid="stSelectbox"] svg {
+        fill: #ffffff !important;
+    }
     [data-testid="stSelectbox"], [data-testid="stFileUploader"] {
         animation: fadeUp 1s ease-out;
+    }
+    [data-testid="stFileUploader"][aria-disabled="true"] section,
+    [data-testid="stFileUploader"] section[disabled] {
+        opacity: 0.55;
     }
     [data-testid="stExpander"] details summary p span { position: absolute; right: 45px; }
     [data-testid="stAlert"] p span { position: absolute; right: 20px; }
@@ -781,9 +880,17 @@ def run_app():
         placeholder="Оберіть напрям зі списку",
     )
     st.info("Завантажуйте будь ласка роботу обов'язково з титульною сторінкою та змістом")
-    uploaded_file = st.file_uploader("Завантажте PDF-файл вашої роботи", type=["pdf"])
+    uploaded_file = st.file_uploader(
+        "Завантажте PDF-файл вашої роботи",
+        type=["pdf"],
+        disabled=work_type is None,
+    )
 
-    if work_type is None or uploaded_file is None:
+    if work_type is None:
+        st.caption("Спочатку оберіть вид роботи, після цього стане доступним завантаження PDF.")
+        return
+
+    if uploaded_file is None:
         return
 
     with st.spinner("Сканую документ..."):
