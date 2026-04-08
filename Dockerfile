@@ -12,7 +12,7 @@ ENV STREAMLIT_SERVER_ADDRESS=0.0.0.0
 COPY requirements.txt .
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends openjdk-17-jre-headless && \
+    apt-get install -y --no-install-recommends default-jre-headless ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip && \
@@ -20,7 +20,10 @@ RUN pip install --upgrade pip && \
 
 COPY app.py .
 COPY app_impl.py .
-COPY *.pdf .
+COPY "Зразок зміст.pdf" .
+COPY "Тітулка Курсова.pdf" .
+COPY "Тітульна КБР.pdf" .
+COPY "Тітульний Практика.pdf" .
 
 EXPOSE 8501
 
