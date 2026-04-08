@@ -216,6 +216,75 @@ def bboxes_intersect(bbox1, bbox2, padding=0):
     )
 
 
+def is_measurement_text_line(line):
+    text = normalize_text("".join(span["text"] for span in line["spans"]))
+    if len(text) < 8:
+        return False
+    if re.fullmatch(r"[\d\W_]+", text):
+        return False
+    return True
+
+
+def block_text_content(block):
+    if "lines" not in block:
+        return ""
+    return normalize_text("".join(span["text"] for line in block["lines"] for span in line["spans"]))
+
+
+def is_body_margin_text(text):
+    if not text or len(text) < 25:
+        return False
+    upper_text = text.upper()
+    if text.isupper():
+        return False
+    if upper_text.startswith(("РОЗДІЛ", "ДОДАТКИ", "ДОДАТОК", "КІНЕЦЬ ТАБЛИЦІ", "ТАБЛИЦЯ ", "РИСУНОК ")):
+        return False
+    if re.match(r"^\d+(\.\d+)*\s+[А-ЯІЇЄҐA-Z]", text):
+        return False
+    return True
+
+
+def collect_margin_bboxes(blocks, rect, table_bboxes):
+    top_bboxes = []
+    body_bboxes = []
+    image_bboxes = []
+
+    for block in blocks:
+        bbox = block.get("bbox")
+        if not bbox:
+            continue
+
+        if block.get("type") == 1:
+            image_bboxes.append(bbox)
+            top_bboxes.append(bbox)
+            continue
+
+        text = block_text_content(block)
+        if not text:
+            continue
+
+        block_lines = []
+        for raw_line in block.get("lines", []):
+            line_text = normalize_text("".join(span["text"] for span in raw_line["spans"]))
+            if not line_text:
+                continue
+            block_lines.append({"text": line_text, "x1": raw_line["bbox"][2], "y1": raw_line["bbox"][3]})
+
+        if block_lines and all(is_page_number_line(line, rect) for line in block_lines):
+            continue
+
+        top_bboxes.append(bbox)
+
+        if any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes):
+            continue
+
+        if is_body_margin_text(text):
+            body_bboxes.append(bbox)
+
+    has_large_image = any((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) > rect.width * rect.height * 0.15 for bbox in image_bboxes)
+    return top_bboxes, body_bboxes, has_large_image
+
+
 def flush_bibliography_entry(report, page_number, entry_parts):
     if not entry_parts:
         return
@@ -451,10 +520,7 @@ def analyze_body_pages(doc, report, start_page=2):
         if hasattr(page, "find_tables"):
             tables = page.find_tables()
             table_bboxes = [table.bbox for table in tables.tables if table_looks_real(table, rect)]
-        min_x = rect.width
-        max_x = 0
-        min_y = rect.height
-        max_y = 0
+        top_margin_bboxes, body_margin_bboxes, has_large_image = collect_margin_bboxes(blocks, rect, table_bboxes)
 
         for block in blocks:
             if "lines" not in block:
@@ -485,29 +551,39 @@ def analyze_body_pages(doc, report, start_page=2):
             block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
             if block_inside_table:
                 continue
+            lines = [
+                line
+                for line in block["lines"]
+                if not is_page_number_line(
+                    {
+                        "text": "".join(span["text"] for span in line["spans"]).strip(),
+                        "x1": line["bbox"][2],
+                        "y1": line["bbox"][3],
+                    },
+                    rect,
+                )
+            ]
+            if not lines:
+                continue
 
-            min_x = min(min_x, bbox[0])
-            min_y = min(min_y, bbox[1])
-            max_x = max(max_x, bbox[2])
-            max_y = max(max_y, bbox[3])
-            lines = block["lines"]
+            measurable_lines = [line for line in lines if is_measurement_text_line(line)]
 
-            if len(lines) > 1:
-                first_line_x = lines[0]["bbox"][0]
-                second_line_x = lines[1]["bbox"][0]
+            if len(measurable_lines) > 1:
+                first_line_x = measurable_lines[0]["bbox"][0]
+                second_line_x = measurable_lines[1]["bbox"][0]
                 indent_cm = (first_line_x - second_line_x) * PT_TO_CM
                 if indent_cm > 0.5 and abs(indent_cm - 1.5) > 0.3:
                     add_page_error(
                         report,
                         "Абзацний відступ (1.5 см)",
                         page_num + 1,
-                        f"Відступ ~{round(indent_cm, 2)} см. <i>'{lines[0]['spans'][0]['text'][:25]}...'</i>",
+                        f"Відступ ~{round(indent_cm, 2)} см. <i>'{measurable_lines[0]['spans'][0]['text'][:25]}...'</i>",
                     )
 
-                if lines[0]["spans"] and lines[1]["spans"]:
-                    prev_y = lines[0]["bbox"][3]
-                    curr_y = lines[1]["bbox"][3]
-                    fs = lines[0]["spans"][0]["size"]
+                if measurable_lines[0]["spans"] and measurable_lines[1]["spans"]:
+                    prev_y = measurable_lines[0]["bbox"][3]
+                    curr_y = measurable_lines[1]["bbox"][3]
+                    fs = measurable_lines[0]["spans"][0]["size"]
                     if fs > 10:
                         line_ratio = (curr_y - prev_y) / fs
                         if (line_ratio < 1.35 or line_ratio > 1.7) and line_ratio > 0.9:
@@ -515,7 +591,7 @@ def analyze_body_pages(doc, report, start_page=2):
                                 report,
                                 "Міжрядковий інтервал (1.5)",
                                 page_num + 1,
-                                f"Інтервал ~{round(line_ratio, 1)}. <i>'{lines[0]['spans'][0]['text'][:25]}...'</i>",
+                                f"Інтервал ~{round(line_ratio, 1)}. <i>'{measurable_lines[0]['spans'][0]['text'][:25]}...'</i>",
                             )
 
             full_text = ""
@@ -628,14 +704,19 @@ def analyze_body_pages(doc, report, start_page=2):
                         "У першому рядку сторінки стоїть 'Таблиця ...' без тексту зверху.",
                     )
 
-        if min_x < rect.width and max_x > 0:
+        if body_margin_bboxes:
+            min_x = min(bbox[0] for bbox in body_margin_bboxes)
+            max_x = max(bbox[2] for bbox in body_margin_bboxes)
             left_cm = min_x * PT_TO_CM
             right_cm = (rect.width - max_x) * PT_TO_CM
-            top_cm = min_y * PT_TO_CM
             if abs(left_cm - 2.5) > 0.35:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Ліве поле ~{round(left_cm, 1)} см")
             if abs(right_cm - 1.0) > 0.35:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Праве поле ~{round(right_cm, 1)} см")
+
+        if top_margin_bboxes and not (has_large_image and not body_margin_bboxes):
+            min_y = min(bbox[1] for bbox in top_margin_bboxes)
+            top_cm = min_y * PT_TO_CM
             if abs(top_cm - 2.0) > 0.35 and top_cm > 1.0:
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
 
