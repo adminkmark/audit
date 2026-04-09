@@ -5,7 +5,6 @@ except ModuleNotFoundError:
 
 if run_app is not None:
     run_app()
-    raise SystemExit
 
 import streamlit as st
 import pymupdf
