@@ -1,3 +1,5 @@
+import streamlit as st
+
 try:
     from app_impl import run_app
 except ModuleNotFoundError:
@@ -5,6 +7,7 @@ except ModuleNotFoundError:
 
 if run_app is not None:
     run_app()
+    st.stop()
 
 import streamlit as st
 import pymupdf
