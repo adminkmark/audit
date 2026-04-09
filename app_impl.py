@@ -417,7 +417,7 @@ def get_title_config(work_type):
                 r"МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ",
                 r"ЗВІТ З ПРАКТИКИ",
                 r"ЗДОБУВАЧА",
-                r"КЕРІВНИКИ ПРАКТИКИ",
+                r"КЕРІВНИК(И)? ПРАКТИКИ",
             ],
             "required_matches": 4,
             "templates": [
@@ -433,7 +433,7 @@ def get_title_config(work_type):
                 {"label": "Назва звіту", "sample_pattern": r"ЗВІТ З ПРАКТИКИ", "upload_pattern": r"ЗВІТ З ПРАКТИКИ"},
                 {"label": "База практики", "sample_pattern": r"^на ", "upload_pattern": r"^НА ", "x_tol": 45},
                 {"label": "Рівень освіти", "sample_pattern": r"здобувача другого \(магістерського\) рівня", "upload_pattern": level_upload, "x_tol": 60},
-                {"label": "Керівники практики", "sample_pattern": r"Керівники практики", "upload_pattern": r"КЕРІВНИКИ ПРАКТИКИ", "x_tol": 50},
+                {"label": "Керівники практики", "sample_pattern": r"Керівники практики", "upload_pattern": r"КЕРІВНИК(И)? ПРАКТИКИ", "x_tol": 50},
                 {"label": "Керівник від кафедри", "sample_pattern": r"від кафедри", "upload_pattern": r"ВІД КАФЕДРИ", "x_tol": 50},
                 {"label": "Керівник від бази практики", "sample_pattern": r"від бази практики", "upload_pattern": r"ВІД БАЗИ ПРАКТИКИ", "x_tol": 50},
                 {"label": "Початок практики", "sample_pattern": r"Початок практики", "upload_pattern": r"ПОЧАТОК ПРАКТИКИ", "x_tol": 50},
@@ -501,11 +501,17 @@ def get_contents_config():
     }
 
 
-def validate_page_against_sample(page, report_key, page_number, config, report):
+def count_detection_matches(page, config):
     lines = extract_lines(page)
-    found = sum(1 for pattern in config["detection_patterns"] if find_best_line(lines, pattern))
-    if found < config["required_matches"]:
-        return False
+    return sum(1 for pattern in config["detection_patterns"] if find_best_line(lines, pattern))
+
+
+def validate_page_against_sample(page, report_key, page_number, config, report, require_detection=True):
+    lines = extract_lines(page)
+    if require_detection:
+        found = sum(1 for pattern in config["detection_patterns"] if find_best_line(lines, pattern))
+        if found < config["required_matches"]:
+            return False
 
     specs = build_specs_from_sample(config["sample_file"], config["templates"])
     for spec in specs:
@@ -513,15 +519,47 @@ def validate_page_against_sample(page, report_key, page_number, config, report):
     return True
 
 
+def has_title_page(page):
+    lines = extract_lines(page)
+    return find_best_line(lines, r"МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ") is not None
+
+
 def validate_title_page(page, work_type, report):
-    return validate_page_against_sample(page, "Титульна сторінка", 1, get_title_config(work_type), report)
+    return validate_page_against_sample(page, "Титульна сторінка", 1, get_title_config(work_type), report, require_detection=False)
+
+
+def detect_mismatched_work_type(page, selected_work_type):
+    best_type = None
+    best_found = -1
+
+    for work_type in WORK_OPTIONS:
+        if work_type == selected_work_type:
+            continue
+        config = get_title_config(work_type)
+        found = count_detection_matches(page, config)
+        if found > best_found:
+            best_type = work_type
+            best_found = found
+
+    if best_type is None:
+        return None
+
+    best_config = get_title_config(best_type)
+    if best_found >= best_config["required_matches"]:
+        return best_type
+    return None
 
 
 def validate_contents_page(page, report, work_type):
     if work_type in {"Звіт з практики (Бакалавр)", "Звіт з практики (Магістр)"}:
         lines = extract_lines(page)
         return find_best_line(lines, r"^ЗМІСТ$") is not None
-    return validate_page_against_sample(page, "Сторінка зі змістом", 2, get_contents_config(), report)
+    return validate_page_against_sample(page, "Сторінка зі змістом", 2, get_contents_config(), report, require_detection=False)
+
+
+def has_contents_page(page):
+    lines = extract_lines(page)
+    return find_best_line(lines, r"^ЗМІСТ$") is not None
 
 
 def analyze_body_pages(doc, report, start_page=2):
@@ -755,16 +793,20 @@ def analyze_pdf(file_bytes, work_type):
         if len(doc) < 2:
             return {"report": report, "stop_message": "Не знайдено титульний лист і сторінку зі змістом."}
 
-        title_ok = validate_title_page(doc[0], work_type, report)
-        contents_ok = validate_contents_page(doc[1], report, work_type)
-        if not title_ok or not contents_ok:
-            if not title_ok and not contents_ok:
+        title_present = has_title_page(doc[0])
+        contents_present = has_contents_page(doc[1])
+        if not title_present or not contents_present:
+            if not title_present and not contents_present:
                 stop_message = "Не знайдено титульний лист і сторінку зі змістом."
-            elif not title_ok:
-                stop_message = "Не знайдено титульний лист."
+            elif not title_present:
+                mismatched_type = detect_mismatched_work_type(doc[0], work_type)
+                stop_message = "Обрано невідповідний тип роботи." if mismatched_type else "Не знайдено титульний лист."
             else:
                 stop_message = "Не знайдено сторінку зі змістом."
             return {"report": report, "stop_message": stop_message}
+
+        validate_title_page(doc[0], work_type, report)
+        validate_contents_page(doc[1], report, work_type)
 
         analyze_body_pages(doc, report, start_page=2)
         return {"report": truncate_report(report), "stop_message": None}
