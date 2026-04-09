@@ -98,6 +98,9 @@ def build_report():
     }
 
 
+TABLE_SOURCE_RULE = "Посилання на джерело даних таблиці"
+
+
 def truncate_report(report):
     for rule, errors in report.items():
         report[rule] = list(dict.fromkeys(errors))
@@ -188,6 +191,68 @@ def get_first_text_line(blocks):
             if first_line is None or (candidate["y0"], candidate["x0"]) < (first_line["y0"], first_line["x0"]):
                 first_line = candidate
     return first_line
+
+
+def is_table_title_line(text):
+    return bool(re.match(r"^Таблиця\s+(\d+\.\d+|[А-ЯІЇЄҐ]\.\d+)\s+[-–]\s+", normalize_text(text), re.IGNORECASE))
+
+
+def is_table_end_line(text):
+    return bool(re.match(r"^Кінець\s+таблиці", normalize_text(text), re.IGNORECASE))
+
+
+def is_table_continuation_line(text):
+    return bool(re.match(r"^Продовження\s+таблиці", normalize_text(text), re.IGNORECASE))
+
+
+def caption_has_inline_source(text):
+    if not is_table_title_line(text):
+        return False
+    title_parts = re.split(r"\s+[-–]\s+", normalize_text(text), maxsplit=1)
+    if len(title_parts) < 2:
+        return False
+    return bool(re.search(r"\[[^\[\]]+\]", title_parts[1]))
+
+
+def is_valid_table_source_line(text):
+    normalized = normalize_text(text)
+    if not re.match(r"^Джерело\s*:", normalized, re.IGNORECASE):
+        return False
+
+    source_body = normalized.split(":", 1)[1].strip()
+    if not source_body:
+        return False
+    if re.fullmatch(r"\[[^\[\]]+\]", source_body):
+        return True
+
+    author_based_pattern = r"^(складено автором за даними|розроблено автором на основі)\b.*\[[^\[\]]+\]"
+    return bool(re.search(author_based_pattern, source_body, re.IGNORECASE))
+
+
+def find_table_header_line(page_lines, table_bbox):
+    candidates = [
+        line
+        for line in page_lines
+        if line["y1"] <= table_bbox[1] + 12
+        and table_bbox[1] - line["y1"] <= 90
+        and (is_table_title_line(line["text"]) or is_table_continuation_line(line["text"]) or is_table_end_line(line["text"]))
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda line: line["y1"])
+
+
+def find_table_source_line(page_lines, table_bbox):
+    candidates = [
+        line
+        for line in page_lines
+        if line["y0"] >= table_bbox[3] - 2
+        and line["y0"] - table_bbox[3] <= 110
+        and re.match(r"^Джерело\s*:", normalize_text(line["text"]), re.IGNORECASE)
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda line: line["y0"])
 
 
 def table_looks_real(table, page_rect):
@@ -572,6 +637,7 @@ def analyze_body_pages(doc, report, start_page=2):
         page = doc[page_num]
         rect = page.rect
         blocks = page.get_text("dict")["blocks"]
+        page_lines = [line for line in extract_lines(page) if not is_page_number_line(line, rect)]
         validate_page_number(page, report, page_num + 1)
         table_bboxes = []
         if hasattr(page, "find_tables"):
@@ -770,6 +836,32 @@ def analyze_body_pages(doc, report, start_page=2):
                         "У першому рядку сторінки стоїть 'Таблиця ...' без тексту зверху.",
                     )
 
+                header_line = find_table_header_line(page_lines, t_bbox)
+                if header_line and is_table_continuation_line(header_line["text"]):
+                    continue
+
+                if header_line and caption_has_inline_source(header_line["text"]):
+                    continue
+
+                source_line = find_table_source_line(page_lines, t_bbox)
+                if source_line and is_valid_table_source_line(source_line["text"]):
+                    continue
+
+                if source_line:
+                    add_page_error(
+                        report,
+                        TABLE_SOURCE_RULE,
+                        page_num + 1,
+                        f"Рядок джерела під таблицею знайдено, але формат некоректний: <i>'{normalize_text(source_line['text'])[:90]}...'</i>",
+                    )
+                else:
+                    add_page_error(
+                        report,
+                        TABLE_SOURCE_RULE,
+                        page_num + 1,
+                        "Для таблиці не знайдено обов'язкового посилання на джерело ні в підписі, ні під таблицею.",
+                    )
+
         if body_margin_bboxes:
             min_x = min(bbox[0] for bbox in body_margin_bboxes)
             max_x = max(bbox[2] for bbox in body_margin_bboxes)
@@ -793,6 +885,7 @@ def analyze_pdf(file_bytes, work_type):
     doc = pymupdf.open(stream=file_bytes, filetype="pdf")
     try:
         report = build_report()
+        report.setdefault(TABLE_SOURCE_RULE, [])
         if len(doc) < 2:
             return {"report": report, "stop_message": "Не знайдено титульний лист і сторінку зі змістом."}
 
