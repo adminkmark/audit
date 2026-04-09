@@ -520,8 +520,8 @@ def validate_page_against_sample(page, report_key, page_number, config, report, 
 
 
 def has_title_page(page):
-    lines = extract_lines(page)
-    return find_best_line(lines, r"МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ") is not None
+    page_text = normalize_for_search(page.get_text("text"))
+    return "МІНІСТЕРСТВО ОСВІТИ І НАУКИ УКРАЇНИ" in page_text
 
 
 def validate_title_page(page, work_type, report):
@@ -558,8 +558,8 @@ def validate_contents_page(page, report, work_type):
 
 
 def has_contents_page(page):
-    lines = extract_lines(page)
-    return find_best_line(lines, r"^ЗМІСТ$") is not None
+    page_text = normalize_for_search(page.get_text("text"))
+    return "ЗМІСТ" in page_text
 
 
 def analyze_body_pages(doc, report, start_page=2):
