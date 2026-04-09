@@ -605,9 +605,6 @@ def analyze_body_pages(doc, report, start_page=2):
                 continue
 
             bbox = block["bbox"]
-            block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
-            if block_inside_table:
-                continue
             lines = [
                 line
                 for line in block["lines"]
@@ -621,6 +618,18 @@ def analyze_body_pages(doc, report, start_page=2):
                 )
             ]
             if not lines:
+                continue
+
+            full_text = ""
+            for line in lines:
+                for span in line["spans"]:
+                    text_strip = span["text"].strip()
+                    full_text += text_strip + " "
+            full_text_strip = full_text.strip()
+
+            block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
+            is_table_caption_block = full_text_strip.startswith("Таблиця") or full_text_strip.startswith("Кінець таблиці") or full_text_strip.startswith("Продовження таблиці")
+            if block_inside_table and not is_table_caption_block:
                 continue
 
             measurable_lines = [line for line in lines if is_measurement_text_line(line)]
@@ -651,12 +660,6 @@ def analyze_body_pages(doc, report, start_page=2):
                                 f"Інтервал ~{round(line_ratio, 1)}. <i>'{measurable_lines[0]['spans'][0]['text'][:25]}...'</i>",
                             )
 
-            full_text = ""
-            for line in lines:
-                for span in line["spans"]:
-                    text_strip = span["text"].strip()
-                    full_text += text_strip + " "
-            full_text_strip = full_text.strip()
             skip_style_checks = is_figure_like_block(full_text_strip, bbox, rect)
 
             if not skip_style_checks:
