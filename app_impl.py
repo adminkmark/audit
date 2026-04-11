@@ -766,8 +766,7 @@ def analyze_body_pages(doc, report, start_page=2):
             full_text_strip = full_text.strip()
 
             block_inside_table = any(bboxes_intersect(bbox, table_bbox, padding=4) for table_bbox in table_bboxes)
-            is_table_caption_block = full_text_strip.startswith("Таблиця") or full_text_strip.startswith("Кінець таблиці") or full_text_strip.startswith("Продовження таблиці")
-            if block_inside_table and not is_table_caption_block:
+            if block_inside_table:
                 continue
 
             measurable_lines = [line for line in lines if is_measurement_text_line(line)]
