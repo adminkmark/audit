@@ -193,6 +193,11 @@ def get_first_text_line(blocks):
     return first_line
 
 
+def get_first_meaningful_line(page):
+    page_lines = extract_lines(page)
+    return next((line for line in page_lines if not is_page_number_line(line, page.rect)), None)
+
+
 def is_table_title_line(text):
     return bool(re.match(r"^Таблиця\s+(\d+\.\d+|[А-ЯІЇЄҐ]\.\d+)\s+[-–]\s+", normalize_text(text), re.IGNORECASE))
 
@@ -914,6 +919,9 @@ def analyze_body_pages(doc, report, start_page=2):
                 if source_line and is_valid_table_source_line(source_line["text"]):
                     continue
 
+                if table_continues_on_next_page(doc, page_num, t_bbox):
+                    continue
+
                 if source_line:
                     add_page_error(
                         report,
@@ -959,6 +967,23 @@ def is_valid_table_source_line(text):
         return False
 
     return bool(re.search(r"\[[^\[\]]+\]", source_body))
+
+
+def table_continues_on_next_page(doc, page_num, table_bbox):
+    if page_num + 1 >= len(doc):
+        return False
+
+    current_page = doc[page_num]
+    if table_bbox[3] < current_page.rect.height - 55:
+        return False
+
+    next_page = doc[page_num + 1]
+    first_line = get_first_meaningful_line(next_page)
+    if first_line is None:
+        return False
+
+    first_text = normalize_text(first_line["text"])
+    return first_text.startswith("Кінець таблиці") or first_text.startswith("Продовження таблиці")
 
 
 def analyze_pdf(file_bytes, work_type):
