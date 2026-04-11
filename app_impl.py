@@ -280,6 +280,11 @@ def find_table_source_line(page_lines, table_bbox):
     return min(candidates, key=lambda line: line["y0"])
 
 
+def page_has_table_source_text(page):
+    lines = [normalize_text(line) for line in page.get_text("text").splitlines() if normalize_text(line)]
+    return next((line for line in lines if re.match(r"^Джерело\s*:", line, re.IGNORECASE)), None)
+
+
 def table_looks_real(table, page_rect):
     content_bbox = get_table_content_bbox(table)
     if content_bbox is None:
@@ -914,6 +919,10 @@ def analyze_body_pages(doc, report, start_page=2):
 
                 source_line = find_table_source_line(page_lines, t_bbox)
                 if source_line and is_valid_table_source_line(source_line["text"]):
+                    continue
+
+                raw_source_line = page_has_table_source_text(page)
+                if raw_source_line and is_valid_table_source_line(raw_source_line):
                     continue
 
                 if table_continues_on_next_page(doc, page_num, t_bbox):
