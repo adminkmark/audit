@@ -984,7 +984,7 @@ def run_app():
         color: #ffffff !important;
         box-shadow: 0 10px 24px rgba(22, 50, 79, 0.18);
     }
-    [data-testid="stSelectbox"] div[data-baseweb="select"] span {
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div span {
         color: #ffffff !important;
     }
     [data-testid="stSelectbox"] svg {
@@ -996,6 +996,17 @@ def run_app():
     [data-testid="stFileUploader"][aria-disabled="true"] section,
     [data-testid="stFileUploader"] section[disabled] {
         opacity: 0.55;
+    }
+    [data-testid="stFileUploader"] section,
+    [data-testid="stFileUploader"] section * {
+        color: #16324f !important;
+    }
+    [data-testid="stFileUploader"] small {
+        color: #5f6f7f !important;
+    }
+    [data-testid="stExpander"] details summary p,
+    [data-testid="stAlert"] p {
+        color: #16324f !important;
     }
     [data-testid="stExpander"] details summary p span { position: absolute; right: 45px; }
     [data-testid="stAlert"] p span { position: absolute; right: 20px; }
