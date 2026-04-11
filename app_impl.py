@@ -973,17 +973,18 @@ def table_continues_on_next_page(doc, page_num, table_bbox):
     if page_num + 1 >= len(doc):
         return False
 
-    current_page = doc[page_num]
-    if table_bbox[3] < current_page.rect.height - 55:
-        return False
-
     next_page = doc[page_num + 1]
     first_line = get_first_meaningful_line(next_page)
     if first_line is None:
         return False
 
     first_text = normalize_text(first_line["text"])
-    return first_text.startswith("Кінець таблиці") or first_text.startswith("Продовження таблиці")
+    if not (first_text.startswith("Кінець таблиці") or first_text.startswith("Продовження таблиці")):
+        return False
+
+    current_page = doc[page_num]
+    bottom_gap = current_page.rect.height - table_bbox[3]
+    return bottom_gap <= 95
 
 
 def analyze_pdf(file_bytes, work_type):
