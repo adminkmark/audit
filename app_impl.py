@@ -229,6 +229,26 @@ def is_valid_table_source_line(text):
     return bool(re.search(author_based_pattern, source_body, re.IGNORECASE))
 
 
+def is_valid_table_source_line(text):
+    normalized = normalize_text(text)
+    if not re.match(r"^Р”Р¶РµСЂРµР»Рѕ\s*:", normalized, re.IGNORECASE):
+        return False
+
+    source_body = normalized.split(":", 1)[1].strip()
+    if not source_body:
+        return False
+    if re.fullmatch(r"\[[^\[\]]+\]", source_body):
+        return True
+    if not re.search(r"\[[^\[\]]+\]", source_body):
+        return False
+
+    author_based_pattern = (
+        r"^(СЃС‚РІРѕСЂРµРЅРѕ|СЃРєР»Р°РґРµРЅРѕ|СЂРѕР·СЂРѕР±Р»РµРЅРѕ|СѓР·Р°РіР°Р»СЊРЅРµРЅРѕ)"
+        r"\s+Р°РІС‚РѕСЂРѕРј\s+(Р·Р°\s+РґР°РЅРёРјРё|РЅР°\s+РѕСЃРЅРѕРІС–)\b.*\[[^\[\]]+\]$"
+    )
+    return bool(re.match(author_based_pattern, source_body, re.IGNORECASE))
+
+
 def find_table_header_line(page_lines, table_bbox):
     candidates = [
         line
@@ -256,7 +276,11 @@ def find_table_source_line(page_lines, table_bbox):
 
 
 def table_looks_real(table, page_rect):
-    x0, y0, x1, y1 = table.bbox
+    content_bbox = get_table_content_bbox(table)
+    if content_bbox is None:
+        return False
+
+    x0, y0, x1, y1 = content_bbox
     width = x1 - x0
     height = y1 - y0
     row_count = getattr(table, "row_count", 0)
@@ -266,6 +290,43 @@ def table_looks_real(table, page_rect):
     if row_count and col_count and (row_count < 2 or col_count < 2):
         return False
     return True
+
+
+def count_filled_cells(row_values):
+    return sum(1 for value in row_values if value and normalize_text(str(value)))
+
+
+def get_table_content_bbox(table):
+    data = table.extract()
+    if not data or not getattr(table, "rows", None):
+        return None
+
+    meaningful_indexes = [index for index, row in enumerate(data) if count_filled_cells(row) >= 2]
+    if not meaningful_indexes:
+        return None
+
+    groups = []
+    current_group = [meaningful_indexes[0]]
+    for index in meaningful_indexes[1:]:
+        if index == current_group[-1] + 1:
+            current_group.append(index)
+        else:
+            groups.append(current_group)
+            current_group = [index]
+    groups.append(current_group)
+
+    best_group = max(groups, key=len)
+    if len(best_group) < 2:
+        return None
+
+    start_row = table.rows[best_group[0]]
+    end_row = table.rows[best_group[-1]]
+    return (
+        start_row.bbox[0],
+        start_row.bbox[1],
+        end_row.bbox[2],
+        end_row.bbox[3],
+    )
 
 
 def point_in_bbox(x, y, bbox, padding=0):
@@ -642,7 +703,13 @@ def analyze_body_pages(doc, report, start_page=2):
         table_bboxes = []
         if hasattr(page, "find_tables"):
             tables = page.find_tables()
-            table_bboxes = [table.bbox for table in tables.tables if table_looks_real(table, rect)]
+            table_bboxes = [
+                content_bbox
+                for table in tables.tables
+                if table_looks_real(table, rect)
+                for content_bbox in [get_table_content_bbox(table)]
+                if content_bbox is not None
+            ]
         top_margin_bboxes, body_margin_bboxes, has_large_image = collect_margin_bboxes(blocks, rect, table_bboxes)
 
         for block in blocks:
@@ -879,6 +946,19 @@ def analyze_body_pages(doc, report, start_page=2):
                 add_page_error(report, "Поля сторінки (Л: 2.5 см, П: 1.0 см, В/Н: 2.0 см)", page_num + 1, f"Верхнє поле ~{round(top_cm, 1)} см")
 
     flush_bibliography_entry(report, bibliography_entry_page or start_page + 1, bibliography_entry_parts)
+
+
+def is_valid_table_source_line(text):
+    normalized = normalize_text(text)
+    if ":" not in normalized:
+        return False
+
+    _, source_body = normalized.split(":", 1)
+    source_body = source_body.strip()
+    if not source_body:
+        return False
+
+    return bool(re.search(r"\[[^\[\]]+\]", source_body))
 
 
 def analyze_pdf(file_bytes, work_type):
