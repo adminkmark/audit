@@ -709,11 +709,9 @@ def analyze_body_pages(doc, report, start_page=2):
         if hasattr(page, "find_tables"):
             tables = page.find_tables()
             table_bboxes = [
-                content_bbox
+                table.bbox
                 for table in tables.tables
                 if table_looks_real(table, rect)
-                for content_bbox in [get_table_content_bbox(table)]
-                if content_bbox is not None
             ]
         top_margin_bboxes, body_margin_bboxes, has_large_image = collect_margin_bboxes(blocks, rect, table_bboxes)
 
