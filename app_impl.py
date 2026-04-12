@@ -1354,21 +1354,44 @@ def run_app():
         if True:
             doc = fitz.open()
             page = doc.new_page(width=595, height=842)
-            font_paths = [
-                "NotoSans-Regular.ttf",
-                "C:/Windows/Fonts/arial.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
-                "arial.ttf"
-            ]
+            import pathlib
+            current_dir = pathlib.Path(__file__).parent.absolute()
+            noto_path = current_dir / "NotoSans-Regular.ttf"
             
-            active_font = "helv" # Fallback
-            for fp in font_paths:
-                if os.path.exists(fp):
-                    page.insert_font(fontname="F1", fontfile=fp)
+            font_found = False
+            if noto_path.exists():
+                try:
+                    page.insert_font(fontname="F1", fontfile=str(noto_path), set_simple=False)
                     active_font = "F1"
-                    break
+                    font_found = True
+                except Exception as e:
+                    st.error(f"Помилка завантаження шрифту Noto: {e}")
+            
+            if not font_found:
+                # Try other paths
+                other_paths = [
+                    "C:/Windows/Fonts/arial.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                ]
+                for fp in other_paths:
+                    if os.path.exists(fp):
+                        try:
+                            page.insert_font(fontname="F1", fontfile=fp, set_simple=False)
+                            active_font = "F1"
+                            font_found = True
+                            break
+                        except:
+                            continue
+            
+            if not font_found:
+                active_font = "helv"
+            
+            # Show a message to the user so we know if it worked
+            if font_found:
+                st.info("✅ Кириличний шрифт для звіту успішно завантажено.")
+            else:
+                st.warning("⚠️ Кириличний шрифт не знайдено! У звіті можуть бути крапки замість літер. Будь ласка, переконайтеся, що файл NotoSans-Regular.ttf є у папці проєкту.")
             
             page.insert_text((50, 50), "Звіт про перевірку оформлення роботи", fontname=active_font, fontsize=16)
             page.insert_text((50, 80), f"ПІБ студента: {student_name}", fontname=active_font, fontsize=12)

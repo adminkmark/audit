@@ -19,6 +19,7 @@ COPY ["Зразок зміст.pdf", "./"]
 COPY ["Тітулка Курсова.pdf", "./"]
 COPY ["Тітульна КБР.pdf", "./"]
 COPY ["Тітульний Практика.pdf", "./"]
+COPY ["NotoSans-Regular.ttf", "./"]
 
 EXPOSE 8501
 
