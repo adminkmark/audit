@@ -1,3 +1,4 @@
+import os
 import re
 
 import pymupdf
@@ -24,6 +25,7 @@ TITLE_SAMPLE_MAP = {
 }
 
 CONTENTS_SAMPLE_FILE = "Зразок зміст.pdf"
+BASE_DIR = os.path.dirname(__file__)
 
 
 def normalize_text(text):
@@ -138,6 +140,24 @@ def validate_page_number(page, report, page_number):
     page_line = next((line for line in lines if is_page_number_line(line, page.rect)), None)
     if page_line is None:
         add_page_error(report, "Нумерація сторінок (вгорі праворуч)", page_number, "Не знайдено номер сторінки у верхньому правому куті.")
+        return
+
+    actual_number = normalize_text(page_line["text"])
+    expected_number = str(page_number)
+    if actual_number != expected_number:
+        add_page_error(
+            report,
+            "Нумерація сторінок (вгорі праворуч)",
+            page_number,
+            f"Очікується номер сторінки <b>{expected_number}</b>, але знайдено <b>{actual_number}</b>.",
+        )
+
+
+def validate_absent_page_number(page, report, rule, page_number):
+    lines = extract_lines(page)
+    page_line = next((line for line in lines if is_page_number_line(line, page.rect)), None)
+    if page_line is not None:
+        add_page_error(report, rule, page_number, "На цій сторінці не повинно бути номера сторінки.")
 
 
 def normalize_font_size(size):
@@ -661,6 +681,7 @@ def has_title_page(page):
 
 
 def validate_title_page(page, work_type, report):
+    validate_absent_page_number(page, report, "Титульна сторінка", 1)
     return validate_page_against_sample(page, "Титульна сторінка", 1, get_title_config(work_type), report, require_detection=False)
 
 
@@ -687,9 +708,13 @@ def detect_mismatched_work_type(page, selected_work_type):
 
 
 def validate_contents_page(page, report, work_type):
+    validate_absent_page_number(page, report, "Сторінка зі змістом", 2)
     if work_type in {"Звіт з практики (Бакалавр)", "Звіт з практики (Магістр)"}:
         lines = extract_lines(page)
-        return find_best_line(lines, r"^ЗМІСТ$") is not None
+        if find_best_line(lines, r"^ЗМІСТ$") is None:
+            add_page_error(report, "Сторінка зі змістом", 2, "Не знайдено заголовок 'ЗМІСТ' на другій сторінці.")
+            return False
+        return True
     return validate_page_against_sample(page, "Сторінка зі змістом", 2, get_contents_config(), report, require_detection=False)
 
 
@@ -1022,6 +1047,37 @@ def analyze_pdf(file_bytes, work_type):
         doc.close()
 
 
+def get_rule_example_files(rule, work_type):
+    files = []
+    if rule == "Титульна сторінка":
+        files.append(("Приклад титульної сторінки", TITLE_SAMPLE_MAP[work_type]))
+    if rule == "Сторінка зі змістом":
+        files.append(("Приклад сторінки зі змістом", CONTENTS_SAMPLE_FILE))
+    return files
+
+
+def render_example_pdfs(rule, work_type, key_prefix):
+    for label, file_name in get_rule_example_files(rule, work_type):
+        file_path = os.path.join(BASE_DIR, file_name)
+        if not os.path.exists(file_path):
+            continue
+        with open(file_path, "rb") as sample_pdf:
+            st.download_button(
+                label,
+                data=sample_pdf.read(),
+                file_name=file_name,
+                mime="application/pdf",
+                key=f"{key_prefix}-{rule}-{file_name}",
+            )
+
+
+def render_stop_message_examples(stop_message, work_type):
+    if "титульний лист" in stop_message.lower() or "тип роботи" in stop_message.lower():
+        render_example_pdfs("Титульна сторінка", work_type, "stop-message")
+    if "зміст" in stop_message.lower():
+        render_example_pdfs("Сторінка зі змістом", work_type, "stop-message")
+
+
 def run_app():
     st.set_page_config(page_title="Перевірка студентських робіт", page_icon="🎓", layout="centered")
     st.markdown(
@@ -1197,6 +1253,7 @@ def run_app():
 
     if result["stop_message"]:
         st.error(result["stop_message"])
+        render_stop_message_examples(result["stop_message"], work_type)
         return
 
     report = result["report"]
@@ -1211,6 +1268,7 @@ def run_app():
             with st.expander(f"❌ **{rule}**  |  Помилок: **{len(errors)}** :red[**РОЗГОРНУТИ**]", expanded=False):
                 for error in errors:
                     st.markdown(f"- {error}", unsafe_allow_html=True)
+                render_example_pdfs(rule, work_type, "report")
 
     st.markdown("---")
     if all_clear:
