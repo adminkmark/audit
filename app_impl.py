@@ -1354,21 +1354,32 @@ def run_app():
         if True:
             doc = fitz.open()
             page = doc.new_page(width=595, height=842)
-            font_path = "C:/Windows/Fonts/arial.ttf"
-            if os.path.exists(font_path):
-                page.insert_font(fontname="F1", fontfile=font_path)
+            font_paths = [
+                "C:/Windows/Fonts/arial.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/liberation-sans/LiberationSans-Regular.ttf",
+                "arial.ttf"
+            ]
             
-            page.insert_text((50, 50), "Звіт про перевірку оформлення роботи", fontname="F1", fontsize=16)
-            page.insert_text((50, 80), f"ПІБ студента: {student_name}", fontname="F1", fontsize=12)
-            page.insert_text((50, 100), f"Назва роботи: {work_name}", fontname="F1", fontsize=12)
-            page.insert_text((50, 120), f"Дата перевірки: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}", fontname="F1", fontsize=12)
-            page.insert_text((50, 150), "Результати перевірки (всі пункти виконано ідеально):", fontname="F1", fontsize=12)
+            active_font = "helv" # Fallback
+            for fp in font_paths:
+                if os.path.exists(fp):
+                    page.insert_font(fontname="F1", fontfile=fp)
+                    active_font = "F1"
+                    break
+            
+            page.insert_text((50, 50), "Звіт про перевірку оформлення роботи", fontname=active_font, fontsize=16)
+            page.insert_text((50, 80), f"ПІБ студента: {student_name}", fontname=active_font, fontsize=12)
+            page.insert_text((50, 100), f"Назва роботи: {work_name}", fontname=active_font, fontsize=12)
+            page.insert_text((50, 120), f"Дата перевірки: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}", fontname=active_font, fontsize=12)
+            page.insert_text((50, 150), "Результати перевірки (всі пункти виконано ідеально):", fontname=active_font, fontsize=12)
             
             y = 180
             # Table header
             page.draw_line((50, y - 15), (540, y - 15), color=(0.7, 0.7, 0.7), width=1)
-            page.insert_text((50, y), "Критерій оцінювання", fontname="F1", fontsize=10, color=(0.3, 0.3, 0.3))
-            page.insert_text((470, y), "Статус", fontname="F1", fontsize=10, color=(0.3, 0.3, 0.3))
+            page.insert_text((50, y), "Критерій оцінювання", fontname=active_font, fontsize=10, color=(0.3, 0.3, 0.3))
+            page.insert_text((470, y), "Статус", fontname=active_font, fontsize=10, color=(0.3, 0.3, 0.3))
             page.draw_line((50, y + 5), (540, y + 5), color=(0.7, 0.7, 0.7), width=1)
             y += 22
 
@@ -1379,13 +1390,13 @@ def run_app():
                     rule_line1 = rule[:split_idx]
                     rule_line2 = rule[split_idx:].strip()
                     
-                    page.insert_text((50, y), f"• {rule_line1}", fontname="F1", fontsize=10)
-                    page.insert_text((470, y), "Ідеально", fontname="F1", fontsize=10, color=(0.1, 0.6, 0.1))
+                    page.insert_text((50, y), f"• {rule_line1}", fontname=active_font, fontsize=10)
+                    page.insert_text((470, y), "Ідеально", fontname=active_font, fontsize=10, color=(0.1, 0.6, 0.1))
                     y += 15
-                    page.insert_text((60, y), rule_line2, fontname="F1", fontsize=10)
+                    page.insert_text((60, y), rule_line2, fontname=active_font, fontsize=10)
                 else:
-                    page.insert_text((50, y), f"• {rule}", fontname="F1", fontsize=10)
-                    page.insert_text((470, y), "Ідеально", fontname="F1", fontsize=10, color=(0.1, 0.6, 0.1))
+                    page.insert_text((50, y), f"• {rule}", fontname=active_font, fontsize=10)
+                    page.insert_text((470, y), "Ідеально", fontname=active_font, fontsize=10, color=(0.1, 0.6, 0.1))
                 
                 page.draw_line((50, y + 8), (540, y + 8), color=(0.9, 0.9, 0.9), width=1)
                 y += 22
