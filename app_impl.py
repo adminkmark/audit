@@ -1355,6 +1355,7 @@ def run_app():
             doc = fitz.open()
             page = doc.new_page(width=595, height=842)
             font_paths = [
+                "NotoSans-Regular.ttf",
                 "C:/Windows/Fonts/arial.ttf",
                 "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
