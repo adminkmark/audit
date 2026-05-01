@@ -633,7 +633,7 @@ def analyze_general_text(doc: fitz.Document) -> dict[str, Any]:
             i_bbox = item["line"]["bbox"]
             
             # Ігноруємо підписи та джерела
-            if re.match(r"^(Таблиця|Рисунок|Джерело)\b", text, re.IGNORECASE):
+            if re.match(r"^(Таблиця|Рисунок|Джерело|(Продовження|Кінець|Кінец)\s+табл)\b", text, re.IGNORECASE):
                 continue
             if first_figure_caption_top is not None and item["y0"] >= first_figure_caption_top - 6:
                 continue
@@ -747,7 +747,7 @@ def analyze_general_text(doc: fitz.Document) -> dict[str, Any]:
                 return False
             if re.match(r"^\d+(\.\d+)*\.?\s+", text):
                 return False
-            if re.match(r"^(Таблиця|Рисунок|Джерело|Формула|Рівняння)\b", text, re.IGNORECASE):
+            if re.match(r"^(Таблиця|Рисунок|Джерело|Формула|Рівняння|(Продовження|Кінець|Кінец)\s+табл)\b", text, re.IGNORECASE):
                 return False
             if "=" in text:
                 return False
@@ -1222,7 +1222,7 @@ def analyze_tables(doc: fitz.Document) -> dict[str, Any]:
                 # Ігноруємо перевірку формату, якщо це перенесення таблиці
                 if lower_txt.startswith("продовження") or lower_txt.startswith("кінец"):
                     pass 
-                elif not re.match(r"^Таблиця\s+[А-ЯA-Z]?\s*\d+(\.\d+)*\s*[-–—]\s+.+", txt, re.IGNORECASE): 
+                elif not re.match(r"^Таблиця\s+[А-ЯA-Z]?\.?\s*\d+(\.\d+)*\s*[-–—]\s+.+", txt, re.IGNORECASE): 
                     p_f.append(f"Невірний формат назви: '{txt[:20]}...'")
                     for cl in caption_lines:
                         highlights.append({"page": page_num, "x": cl["bbox"][0], "y": cl["bbox"][1], "w": cl["bbox"][2]-cl["bbox"][0], "h": cl["bbox"][3]-cl["bbox"][1]})
